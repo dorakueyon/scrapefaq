@@ -3,65 +3,98 @@ package main
 import (
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
-	"log"
-	"sync"
+	"regexp"
+	"runtime"
+	"strconv"
 )
 
-type Result struct {
-	Title string
-	Url   string
+type Crawler struct {
+	games []Game
 }
 
-func GetPages(url string) []Result {
-	results := []Result{}
-	result := Result{url, url}
-	results = append(results, result)
-	return results
+type Game struct {
+	Number        int    `json:"number"`
+	Name          string `json:"name"`
+	ReleaseDate   string `json:"releaseDate"`
+	DiscountRate  int    `json:"discountRate"`
+	NormalPrice   int    `json:"normalPrice"`
+	DiscountPrice int    `json:"discountPrice"`
+	Rate          int    `json:"rate"`
+	Reviewer      int    `json:"reviewer"`
+	URL           string `json:"url"`
 }
 
-func GoGet(urls []string) <-chan []Result {
-	var wg sync.WaitGroup
-	ch := make(chan []Result)
-	go func() {
-		fmt.Printf("test")
-		for _, url := range urls {
-			wg.Add(1)
-			go func(url string) {
-				//ch <- GetPages(url)
-				fmt.Println(url)
-				ch <- GetPages(url)
-				wg.Done()
-			}(url)
+const URL = "http://store.steampowered.com/search/results?sort_by=_ASC&specials=1"
+
+func NewCrawler() *Crawler {
+	return &Crawler{}
+}
+
+func (c *Crawler) StartCrawl() (err error) {
+	doc, err := goquery.NewDocument(URL)
+	fmt.Println(doc)
+	if err != nil {
+		return
+	}
+
+	//Getting the number of pages.
+	var pageNum int
+	doc.Find(".search_pagination_right").Children().Each(func(i int, s *goquery.Selection) {
+		fmt.Println(s)
+		if i == 2 {
+			pageNum, err = strconv.Atoi(s.Text())
+			if err != nil {
+				return
+			}
 		}
-		wg.Wait()
-		close(ch)
-	}()
-	return ch
+	})
+
+	//Starting goroutine.
+	resultCh := make(chan []Game, pageNum)
+	for i := 1; i < pageNum+1; i++ {
+		url := fmt.Sprintf("%s&page=%d", URL, i)
+		go c.crawl(url, resultCh)
+	}
+
+	return
+}
+
+func (c *Crawler) crawl(url string, resultCh chan []Game) {
+	doc, err := goquery.NewDocument(url)
+	if err != nil {
+		panic(err)
+	}
+
+	//Getting the number of element of a page
+	elementNum, err := c.getFirstElementNumber(doc.Find(".search_pagination_left").Text())
+	if err != nil {
+		fmt.Printf("pani")
+		panic(err)
+	}
+	fmt.Printf("num", elementNum)
+}
+
+func (c *Crawler) getFirstElementNumber(paginationLeft string) (int, error) {
+	re, err := regexp.Compile(`[0-9]+`)
+	if err != nil {
+		return 0, err
+	}
+	pageStr := re.FindString(paginationLeft)
+
+	page, err := strconv.Atoi(pageStr)
+	if err != nil {
+		panic(err)
+	}
+	return page, nil
 }
 
 func main() {
-	// Open FAQ category page
-	url := "http://www-odc-ori.oki.com/jp/printing/support/faq/index.html"
-	// Get FAQ detail pages
-	urls := crawl(url)
-	ch := GoGet(urls)
-	// open each faq detail page
-	// get faq id
-	// store faq id to result
-	fmt.Println(ch)
-}
+	runtime.GOMAXPROCS(runtime.NumCPU())
 
-func crawl(url string) []string {
-	results := []string{}
-	doc, err := goquery.NewDocument(url)
+	c := NewCrawler()
+	err := c.StartCrawl()
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
-	doc.Find(".column4").Find("a").Each(func(_ int, s *goquery.Selection) {
-		url, exists := s.Attr("href")
-		if exists {
-			results = append(results, url)
-		}
-	})
-	return results
+
 }
