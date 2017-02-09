@@ -32,7 +32,6 @@ func NewCrawler() *Crawler {
 
 func (c *Crawler) StartCrawl() (err error) {
 	doc, err := goquery.NewDocument(URL)
-	fmt.Println(doc)
 	if err != nil {
 		return
 	}
@@ -40,7 +39,6 @@ func (c *Crawler) StartCrawl() (err error) {
 	//Getting the number of pages.
 	var pageNum int
 	doc.Find(".search_pagination_right").Children().Each(func(i int, s *goquery.Selection) {
-		fmt.Println(s)
 		if i == 2 {
 			pageNum, err = strconv.Atoi(s.Text())
 			if err != nil {
@@ -56,6 +54,13 @@ func (c *Crawler) StartCrawl() (err error) {
 		go c.crawl(url, resultCh)
 	}
 
+	for i := 1; i < pageNum+1; i++ {
+		gs := <-resultCh
+		c.games = append(c.games, gs...)
+	}
+	close(resultCh)
+	fmt.Println(c.games)
+
 	return
 }
 
@@ -64,14 +69,28 @@ func (c *Crawler) crawl(url string, resultCh chan []Game) {
 	if err != nil {
 		panic(err)
 	}
-
 	//Getting the number of element of a page
 	elementNum, err := c.getFirstElementNumber(doc.Find(".search_pagination_left").Text())
 	if err != nil {
-		fmt.Printf("pani")
 		panic(err)
 	}
-	fmt.Printf("num", elementNum)
+	// Scraping
+	var games []Game
+	doc.Find(".search_result_row").Each(func(_ int, s *goquery.Selection) {
+		var game Game
+
+		game.Name = s.Find(".title").Text()
+		game.ReleaseDate = s.Find(".search_released").Text()
+
+		// Getting discount rate.
+		game.DiscountRate, _ = c.extractDiscount(s.Find(".search_discount").Find("span").Text())
+
+		game.Number = elementNum
+		elementNum++
+
+		games = append(games, game)
+	})
+	resultCh <- games
 }
 
 func (c *Crawler) getFirstElementNumber(paginationLeft string) (int, error) {
@@ -88,6 +107,22 @@ func (c *Crawler) getFirstElementNumber(paginationLeft string) (int, error) {
 	return page, nil
 }
 
+func (c *Crawler) extractDiscount(discount string) (int, error) {
+	re, err := regexp.Compile("[0-9]+")
+	if err != nil {
+		panic(err)
+	}
+	exDiscount := re.FindString(discount)
+	return strconv.Atoi(exDiscount)
+}
+
+func (c *Crawler) storeCSV(path string) (err error) {
+	c.SortGames()
+	return
+}
+func (c *Crawler) SortGames() {
+}
+
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
@@ -96,5 +131,8 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
+	err2 := c.storeCSV("data.csv")
+	if err2 != nil {
+		panic(err2)
+	}
 }
