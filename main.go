@@ -5,26 +5,20 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"regexp"
 	"runtime"
-	"strconv"
 )
 
+type Model struct {
+	ModelName string
+	ModelSku  string
+	Faq       string
+	URL       string
+}
+
+const URL = "http://www-odc-ori.oki.com/jp/printing/support/faq/color/index.html"
+
 type Crawler struct {
-	games []Game
+	models []Model
 }
-
-type Game struct {
-	Number        int    `json:"number"`
-	Name          string `json:"name"`
-	ReleaseDate   string `json:"releaseDate"`
-	DiscountRate  int    `json:"discountRate"`
-	NormalPrice   int    `json:"normalPrice"`
-	DiscountPrice int    `json:"discountPrice"`
-	Rate          int    `json:"rate"`
-	Reviewer      int    `json:"reviewer"`
-	URL           string `json:"url"`
-}
-
-const URL = "http://store.steampowered.com/search/results?sort_by=_ASC&specials=1"
 
 func NewCrawler() *Crawler {
 	return &Crawler{}
@@ -32,60 +26,62 @@ func NewCrawler() *Crawler {
 
 func (c *Crawler) StartCrawl() (err error) {
 	doc, err := goquery.NewDocument(URL)
-	fmt.Println(doc)
 	if err != nil {
 		return
 	}
 
-	//Getting the number of pages.
-	var pageNum int
-	doc.Find(".search_pagination_right").Children().Each(func(i int, s *goquery.Selection) {
-		fmt.Println(s)
-		if i == 2 {
-			pageNum, err = strconv.Atoi(s.Text())
-			if err != nil {
-				return
-			}
+	var urls []string
+
+	doc.Find(".col-xs-12" + ".col-sm-9").Find("a").Each(func(_ int, s *goquery.Selection) {
+		url, ok := s.Attr("href")
+		if ok {
+			urls = append(urls, url)
 		}
 	})
 
-	//Starting goroutine.
-	resultCh := make(chan []Game, pageNum)
-	for i := 1; i < pageNum+1; i++ {
-		url := fmt.Sprintf("%s&page=%d", URL, i)
+	// Starting goroutine
+	resultCh := make(chan []Model)
+	for _, url := range urls {
 		go c.crawl(url, resultCh)
 	}
 
+	for i := 0; i < len(urls); i++ {
+		gs := <-resultCh
+		c.models = append(c.models, gs...)
+	}
+	close(resultCh)
 	return
 }
 
-func (c *Crawler) crawl(url string, resultCh chan []Game) {
-	doc, err := goquery.NewDocument(url)
+func (c *Crawler) crawl(url string, resultCh chan []Model) {
+	base_url := "http://www.oki.com"
+	doc, err := goquery.NewDocument(base_url + url)
 	if err != nil {
 		panic(err)
 	}
 
-	//Getting the number of element of a page
-	elementNum, err := c.getFirstElementNumber(doc.Find(".search_pagination_left").Text())
-	if err != nil {
-		fmt.Printf("pani")
-		panic(err)
-	}
-	fmt.Printf("num", elementNum)
+	var models []Model
+
+	var model Model
+	re, _ := regexp.Compile(`p\s\:\s\"(.*)\"`)
+	html := re.FindStringSubmatch(doc)
+	model.Faq = html[1]
+	model.ModelName = doc.Find("h1").Text()
+	model.URL = url
+	models = append(models, model)
+
+	resultCh <- models
 }
 
-func (c *Crawler) getFirstElementNumber(paginationLeft string) (int, error) {
-	re, err := regexp.Compile(`[0-9]+`)
-	if err != nil {
-		return 0, err
-	}
-	pageStr := re.FindString(paginationLeft)
+func (c *Crawler) extractFaq(html string) (string, error) {
+	re, err := regexp.Compile(`p\s\:\s\"(.*)\"`)
 
-	page, err := strconv.Atoi(pageStr)
+	fmt.Println(html)
 	if err != nil {
 		panic(err)
 	}
-	return page, nil
+	faq := re.FindString(html)
+	return faq, nil
 }
 
 func main() {
@@ -96,5 +92,4 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
 }
