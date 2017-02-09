@@ -59,7 +59,6 @@ func (c *Crawler) StartCrawl() (err error) {
 		c.games = append(c.games, gs...)
 	}
 	close(resultCh)
-	fmt.Println(c.games)
 
 	return
 }
@@ -121,6 +120,30 @@ func (c *Crawler) storeCSV(path string) (err error) {
 	return
 }
 func (c *Crawler) SortGames() {
+	c.games = sortData(c.games)
+}
+
+func sortData(games []Game) (ret []Game) {
+	if len(games) == 0 {
+		return games
+	}
+	pivot := games[0]
+
+	var left []Game
+	var right []Game
+
+	for _, v := range games[1:] {
+		if v.Number > pivot.Number {
+			right = append(right, v)
+		} else {
+			left = append(left, v)
+		}
+	}
+	left = sortData(left)
+	right = sortData(right)
+	ret = append(left, pivot)
+	ret = append(ret, right...)
+	return
 }
 
 func main() {
