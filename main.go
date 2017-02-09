@@ -30,12 +30,6 @@ func (c *Crawler) StartCrawl() (err error) {
 		return
 	}
 
-	var urls []string
-
-	doc.Find(".col-xs-12" + ".col-sm-9").Find("a").Each(func(_ int, s *goquery.Selection) {
-		url, ok := s.Attr("href")
-		if ok {
-			urls = append(urls, url)
 		}
 	})
 
@@ -45,11 +39,12 @@ func (c *Crawler) StartCrawl() (err error) {
 		go c.crawl(url, resultCh)
 	}
 
-	for i := 0; i < len(urls); i++ {
+	for i := 1; i < pageNum+1; i++ {
 		gs := <-resultCh
-		c.models = append(c.models, gs...)
+		c.games = append(c.games, gs...)
 	}
 	close(resultCh)
+
 	return
 }
 
@@ -84,6 +79,46 @@ func (c *Crawler) extractFaq(html string) (string, error) {
 	return faq, nil
 }
 
+func (c *Crawler) extractDiscount(discount string) (int, error) {
+	re, err := regexp.Compile("[0-9]+")
+	if err != nil {
+		panic(err)
+	}
+	exDiscount := re.FindString(discount)
+	return strconv.Atoi(exDiscount)
+}
+
+func (c *Crawler) storeCSV(path string) (err error) {
+	c.SortGames()
+	return
+}
+func (c *Crawler) SortGames() {
+	c.games = sortData(c.games)
+}
+
+func sortData(games []Game) (ret []Game) {
+	if len(games) == 0 {
+		return games
+	}
+	pivot := games[0]
+
+	var left []Game
+	var right []Game
+
+	for _, v := range games[1:] {
+		if v.Number > pivot.Number {
+			right = append(right, v)
+		} else {
+			left = append(left, v)
+		}
+	}
+	left = sortData(left)
+	right = sortData(right)
+	ret = append(left, pivot)
+	ret = append(ret, right...)
+	return
+}
+
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
@@ -92,4 +127,3 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-}
