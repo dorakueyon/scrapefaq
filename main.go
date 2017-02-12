@@ -1,10 +1,13 @@
 package main
 
 import (
+	"encoding/csv"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
+	"os"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -18,6 +21,16 @@ type Model struct {
 	ModelSku  string
 	ModelFaq  string
 	ModelUrl  string
+}
+
+func (m *Model) GetRow() (row []string) {
+	row = make([]string, 5)
+	row[0] = strconv.Itoa(m.Number)
+	row[1] = m.ModelName
+	row[2] = m.ModelSku
+	row[3] = m.ModelUrl
+	row[4] = m.ModelFaq
+	return
 }
 
 const URL = "http://www.oki.com/jp/printing/support/faq/index.html"
@@ -58,9 +71,13 @@ func (c *Crawler) NewCrawler() (err error) {
 	for i := 0; i < len(urls); i++ {
 		gs := <-resultCh
 		c.models = append(c.models, gs...)
+		if (i+1)%10 != 0 {
+			fmt.Printf("-")
+		} else {
+			fmt.Printf("%d", i+1)
+		}
 	}
 	close(resultCh)
-	fmt.Println(c.models)
 
 	return
 }
@@ -73,12 +90,12 @@ func (c *Crawler) crawl(url string, i int, resultCh chan []Model) {
 	var models []Model
 	var model Model
 
-	model.Number = i
+	model.Number = i + 1
 	model.ModelUrl = DOMAIN + url
 	model.ModelName = doc.Find("h1").Text()
 	// extract SKU from URL
 	splitedUrl := strings.Split(url, "/")
-	model.ModelSku = splitedUrl[len(splitedUrl)-1]
+	model.ModelSku = splitedUrl[len(splitedUrl)-2]
 	wrapper := doc.Find(".tabContentsWrapper").Text()
 	model.ModelFaq = c.extractFaq(wrapper)
 	models = append(models, model)
@@ -98,8 +115,26 @@ func (c *Crawler) extractFaq(html string) string {
 	return faq[1]
 }
 
-func (c *Crawler) StoreCSV() {
+func (c *Crawler) StoreCSV(path string) (err error) {
 	c.SortModel()
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0600)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+	err = file.Truncate(0)
+	if err != nil {
+		panic(err)
+	}
+	writer := csv.NewWriter(file)
+	writer.UseCRLF = true
+	// add first row of csv
+	writer.Write([]string{"#", "MODEL_NAME", "MODEL_SKU", "MODEL_URL", "FAQ"})
+	for _, v := range c.models {
+		writer.Write(v.GetRow())
+	}
+
+	writer.Flush()
 	return
 }
 
@@ -114,15 +149,15 @@ func SortData(models []Model) (ret []Model) {
 	pivot := models[0]
 	var left []Model
 	var right []Model
-	for _, v := range models {
-		if v.Number < pivot.Number {
-			left = append(left, v)
-		} else {
+	for _, v := range models[1:] {
+		if v.Number > pivot.Number {
 			right = append(right, v)
+		} else {
+			left = append(left, v)
 		}
 	}
-	SortData(left)
-	SortData(right)
+	left = SortData(left)
+	right = SortData(right)
 	ret = append(left, pivot)
 	ret = append(ret, right...)
 	return ret
@@ -135,9 +170,8 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	//err2 := c.StoreCSV()
-	//if err != nil {
-	//	panic(err)
-	//}
-	c.StoreCSV()
+	err = c.StoreCSV("./data.csv")
+	if err != nil {
+		panic(err)
+	}
 }
