@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/csv"
+	"flag"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
 	"os"
@@ -13,6 +14,8 @@ import (
 
 type Crawler struct {
 	models []Model
+	url    string
+	domain string
 }
 
 type Model struct {
@@ -33,15 +36,33 @@ func (m *Model) GetRow() (row []string) {
 	return
 }
 
-const URL = "http://www.oki.com/jp/printing/support/faq/index.html"
-const DOMAIN = "http://www.oki.com/"
-
 func NewCrawler() *Crawler {
 	return &Crawler{}
 }
 
+func (c *Crawler) SetUrl(country string, environment string, language string) (err error) {
+	var url string
+	if environment != "staging" && environment != "live" {
+		fmt.Printf("'-e'オプションのあとは、'staging'か'live'")
+		os.Exit(0)
+	}
+	if environment == "live" {
+		url = "http://www.oki.com/"
+	} else {
+		url = "http://10.253.246.78/"
+	}
+	c.domain = url
+	url = url + country + "/printing/"
+	if language != "" {
+		url = url + language + "/"
+	}
+	c.url = url
+	return
+}
+
 func (c *Crawler) NewCrawler() (err error) {
-	doc, err := goquery.NewDocument(URL)
+	faq_url := c.url + "support/faq/"
+	doc, err := goquery.NewDocument(faq_url)
 	if err != nil {
 		panic(err)
 	}
@@ -49,7 +70,7 @@ func (c *Crawler) NewCrawler() (err error) {
 	var urls []string
 	doc.Find(".column4").Find("a").Each(func(_ int, s *goquery.Selection) {
 		html, _ := s.Attr("href")
-		doc2, err := goquery.NewDocument(DOMAIN + html)
+		doc2, err := goquery.NewDocument(c.domain + html)
 		if err != nil {
 			panic(err)
 		}
@@ -83,7 +104,7 @@ func (c *Crawler) NewCrawler() (err error) {
 }
 
 func (c *Crawler) crawl(url string, i int, resultCh chan []Model) {
-	doc, err := goquery.NewDocument(DOMAIN + url)
+	doc, err := goquery.NewDocument(c.domain + url)
 	if err != nil {
 		panic(err)
 	}
@@ -91,7 +112,7 @@ func (c *Crawler) crawl(url string, i int, resultCh chan []Model) {
 	var model Model
 
 	model.Number = i + 1
-	model.ModelUrl = DOMAIN + url
+	model.ModelUrl = c.domain + url
 	model.ModelName = doc.Find("h1").Text()
 	// extract SKU from URL
 	splitedUrl := strings.Split(url, "/")
@@ -165,12 +186,32 @@ func SortData(models []Model) (ret []Model) {
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
+	var (
+		country     string
+		environment string
+		language    string
+	)
+	flag.StringVar(&country, "c", "eu", "処理する国。(e.g.'eu')")
+	flag.StringVar(&environment, "e", "live", "'staging'か、'live'を選択")
+	flag.StringVar(&language, "l", "", "複数言語サイトは、言語コードを指定")
+	flag.Parse()
 	c := NewCrawler()
-	err := c.NewCrawler()
+	err := c.SetUrl(country, environment, language)
 	if err != nil {
 		panic(err)
 	}
-	err = c.StoreCSV("./data.csv")
+	fmt.Println(c.url)
+	err = c.NewCrawler()
+	if err != nil {
+		panic(err)
+	}
+	var save_name string
+	if language != "" {
+		save_name = "./" + country + "_" + language + "_" + environment + "_faqId.csv"
+	} else {
+		save_name = "./" + country + "_" + environment + "_faqId.csv"
+	}
+	err = c.StoreCSV(save_name)
 	if err != nil {
 		panic(err)
 	}
